@@ -1,3 +1,4 @@
+
 # adapted from: https://github.com/Tiryoh/docker-ros2-desktop-vnc
 FROM dorowu/ubuntu-desktop-lxde-vnc:focal
 LABEL maintainer="Unity Robotics <unity-robotics@unity3d.com>"
@@ -9,6 +10,7 @@ ENV GROUP_NAME=ros
 ENV WS_NAME=colcon_ws
 
 RUN echo "Set disable_coredump false" >> /etc/sudo.conf
+RUN rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google.list
 RUN apt-get update -q && \
     apt-get upgrade -yq && \
     apt-get install -yq \
