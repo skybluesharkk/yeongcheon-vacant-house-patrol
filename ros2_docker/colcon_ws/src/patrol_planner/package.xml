@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>patrol_planner</name>
+  <version>0.0.1</version>
+  <description>영천 빈집 순찰 시스템 (TSP + A* 기반 경로 계획 및 추종)</description>
+  <maintainer email="david5324@pusan.ac.kr">Yeongcheon Patrol Team</maintainer>
+  <license>Apache 2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>tf2_geometry_msgs</exec_depend>
+  <!-- 카메라 이미지 → JPEG 변환용. apt: python3-pil  /  pip: Pillow -->
+  <exec_depend>python3-pil</exec_depend>
+  <!-- 백엔드 POST 용. apt: python3-requests -->
+  <exec_depend>python3-requests</exec_depend>
+  <!-- WebSocket 클라이언트. pip: websocket-client -->
+  <exec_depend>python3-websocket</exec_depend>
+  <!-- YOLO 객체 탐지. pip: ultralytics -->
+  <exec_depend>python3-ultralytics</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
