@@ -70,3 +70,22 @@ coverage.xml
 /htmlcov/
 
 **/UserSettings/*
+
+# ROS2 build artifacts
+ros2_docker/colcon_ws/build/
+ros2_docker/colcon_ws/install/
+ros2_docker/colcon_ws/log/
+ros2_docker/colcon_ws/src/install/
+ros2_docker/colcon_ws/src/log/
+ros2_docker/colcon_ws/src/build/
+
+# Python cache
+__pycache__/
+
+# Dummy backend uploads (test artifacts)
+ros2_docker/colcon_ws/src/patrol_planner/dummy_backend/uploads/
+
+# Unity Library (large generated cache)
+Nav2SLAMExampleProject/Library/
+Nav2SLAMExampleProject/Temp/
+Nav2SLAMExampleProject/Logs/
