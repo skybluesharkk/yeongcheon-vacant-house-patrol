@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Patrol Dashboard</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        
+        :root {
+            --bg-color: #0f172a;
+            --panel-bg: rgba(30, 41, 59, 0.7);
+            --border-color: rgba(255, 255, 255, 0.1);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            background-image: 
+                radial-gradient(circle at 15% 50%, rgba(59, 130, 246, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 85% 30%, rgba(16, 185, 129, 0.15) 0%, transparent 50%);
+        }
+
+        .container {
+            display: flex;
+            width: 100%;
+            padding: 20px;
+            gap: 20px;
+        }
+
+        .map-section {
+            flex: 1.5;
+            display: flex;
+            flex-direction: column;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            backdrop-filter: blur(12px);
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .map-header {
+            display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;
+        }
+
+        .status-badge {
+            padding: 6px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: 600;
+            background: rgba(148, 163, 184, 0.2); color: var(--text-muted); transition: all 0.3s ease;
+        }
+
+        .status-badge.active {
+            background: rgba(16, 185, 129, 0.2); color: var(--success); box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+        }
+
+        .canvas-container {
+            flex: 1; position: relative; background: rgba(15, 23, 42, 0.5);
+            border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); overflow: hidden;
+        }
+        canvas { width: 100%; height: 100%; display: block; }
+
+        .info-section {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: auto 1fr;
+            gap: 20px;
+        }
+
+        .panel {
+            background: var(--panel-bg); border: 1px solid var(--border-color);
+            border-radius: 20px; backdrop-filter: blur(12px); padding: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3); display: flex; flex-direction: column;
+        }
+
+        .panel-title {
+            font-size: 1.0rem; font-weight: 600; margin-bottom: 10px; color: var(--text-main);
+        }
+
+        /* 1. Live Video */
+        .video-panel { grid-column: 1 / 3; height: 260px; }
+        .video-container {
+            flex: 1; background: #000; border-radius: 12px; overflow: hidden;
+            display: flex; align-items: center; justify-content: center; position: relative;
+        }
+        .video-container img { width: 100%; height: 100%; object-fit: contain; }
+        .video-overlay {
+            position: absolute; top: 10px; left: 10px; background: rgba(239, 68, 68, 0.8);
+            padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold;
+            animation: pulse 2s infinite;
+        }
+
+        /* 2. Mission Control */
+        .control-panel { grid-column: 1 / 2; }
+        .house-grid {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 15px;
+        }
+        .house-checkbox {
+            display: flex; align-items: center; justify-content: center; gap: 5px;
+            background: rgba(255,255,255,0.05); padding: 8px 5px; border-radius: 8px; cursor: pointer;
+            border: 1px solid transparent; transition: 0.2s; font-size: 0.85rem;
+        }
+        .house-checkbox:hover { background: rgba(255,255,255,0.1); }
+        .house-checkbox input { display: none; }
+        .house-checkbox.checked { background: rgba(59, 130, 246, 0.2); border-color: var(--accent); color: var(--accent); font-weight: bold; }
+        
+        .start-btn {
+            width: 100%; padding: 12px; border: none; border-radius: 10px;
+            background: var(--accent); color: white; font-weight: bold; font-size: 0.9rem;
+            cursor: pointer; transition: 0.2s; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
+        }
+        .start-btn:hover { background: var(--accent-hover); transform: translateY(-2px); }
+        .start-btn:active { transform: translateY(0); }
+
+        /* 3. Photo Viewer */
+        .photo-panel { grid-column: 2 / 3; }
+        .photo-viewer {
+            flex: 1; background: rgba(0,0,0,0.3); border-radius: 12px; display: flex;
+            align-items: center; justify-content: center; overflow: hidden; position: relative;
+        }
+        .photo-viewer img { max-width: 100%; max-height: 100%; object-fit: contain; animation: fadeIn 0.5s; }
+        .photo-label {
+            position: absolute; bottom: 8px; left: 8px; background: rgba(0,0,0,0.7);
+            padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; display: none;
+        }
+        .photo-label.alert {
+            background: rgba(239, 68, 68, 0.9); color: white; font-weight: bold;
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.5); animation: pulse 1.5s infinite;
+        }
+
+        /* 4. Logs */
+        .log-panel { grid-column: 1 / 3; }
+        .log-viewer {
+            flex: 1; background: rgba(0,0,0,0.3); border-radius: 12px; padding: 10px;
+            overflow-y: auto; font-family: monospace; font-size: 0.8rem; display: flex; flex-direction: column; gap: 6px;
+        }
+        .log-item { padding: 6px 10px; border-radius: 6px; background: rgba(255,255,255,0.05); border-left: 3px solid var(--text-muted); animation: slideIn 0.3s ease-out; }
+        .log-item.success { border-color: var(--success); }
+        .log-item.photo { border-color: var(--accent); }
+        .log-item.missing { border-color: var(--danger); background: rgba(239, 68, 68, 0.1); }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideIn { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+        .empty-text { color: var(--text-muted); font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="map-section">
+        <div class="map-header">
+            <h2>Live Map</h2>
+            <div id="connStatus" class="status-badge">Connecting...</div>
+        </div>
+        <div class="canvas-container">
+            <canvas id="mapCanvas"></canvas>
+        </div>
+    </div>
+
+    <div class="info-section">
+        <!-- Live Video -->
+        <div class="panel video-panel">
+            <div class="panel-title">📹 Live Camera Feed</div>
+            <div class="video-container">
+                <span class="empty-text" id="videoEmpty">Waiting for video stream...</span>
+                <img id="liveVideo" src="" alt="Live Video" style="display: none;">
+                <div class="video-overlay" id="videoRec" style="display: none;">REC</div>
+            </div>
+        </div>
+
+        <!-- Mission Control -->
+        <div class="panel control-panel">
+            <div class="panel-title">🎯 Mission Control</div>
+            <div class="house-grid" id="houseGrid">
+                <!-- Checkboxes injected by JS -->
+            </div>
+            <button class="start-btn" onclick="startMission()">🚀 Start Selected Patrol</button>
+        </div>
+
+        <!-- Photos -->
+        <div class="panel photo-panel">
+            <div class="panel-title">📸 Last Capture</div>
+            <div class="photo-viewer" id="photoViewer">
+                <span class="empty-text" id="photoEmpty">No photos yet</span>
+                <img id="latestImg" src="" style="display:none;">
+                <div id="photoLabel" class="photo-label"></div>
+            </div>
+        </div>
+        
+        <!-- Logs -->
+        <div class="panel log-panel">
+            <div class="panel-title">📋 Activity Log</div>
+            <div class="log-viewer" id="logViewer"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('mapCanvas');
+    const ctx = canvas.getContext('2d');
+    const connStatus = document.getElementById('connStatus');
+    const photoEmpty = document.getElementById('photoEmpty');
+    const latestImg = document.getElementById('latestImg');
+    const photoLabel = document.getElementById('photoLabel');
+    const logViewer = document.getElementById('logViewer');
+    const houseGrid = document.getElementById('houseGrid');
+    
+    const videoEmpty = document.getElementById('videoEmpty');
+    const liveVideo = document.getElementById('liveVideo');
+    const videoRec = document.getElementById('videoRec');
+
+    let graph = null;
+    let robotPos = null;
+    let plan = null;
+    let ws = null;
+    
+    // UI Setup: Checkboxes
+    const allHouses = ['H1', 'H2', 'H3', 'H4', 'H5', 'H6'];
+    allHouses.forEach(h => {
+        const lbl = document.createElement('label');
+        lbl.className = 'house-checkbox';
+        lbl.innerHTML = `<input type="checkbox" value="${h}"> ${h}`;
+        lbl.querySelector('input').addEventListener('change', function() {
+            if(this.checked) lbl.classList.add('checked');
+            else lbl.classList.remove('checked');
+        });
+        houseGrid.appendChild(lbl);
+    });
+
+    function startMission() {
+        const selected = Array.from(document.querySelectorAll('.house-checkbox input:checked')).map(el => el.value);
+        if(selected.length === 0) {
+            alert('순찰할 빈집을 1개 이상 선택해주세요!');
+            return;
+        }
+        if(ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'start_mission', houses: selected }));
+            addLog(`Command sent: Patrol [${selected.join(', ')}]`, 'success');
+        } else {
+            alert('백엔드와 연결되어 있지 않습니다.');
+        }
+    }
+
+    // Auto-resize
+    function resizeCanvas() {
+        const container = canvas.parentElement;
+        canvas.width = container.clientWidth;
+        canvas.height = container.clientHeight;
+        drawMap();
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    let minX = -100, maxX = 100, minY = -100, maxY = 100;
+    function updateBounds() {
+        if (!graph || !graph.nodes) return;
+        let pts = Object.values(graph.nodes);
+        if (graph.houses) pts.push(...Object.values(graph.houses).map(h => h.pos));
+        if (pts.length === 0) return;
+        minX = Math.min(...pts.map(p => p[0])) - 10;
+        maxX = Math.max(...pts.map(p => p[0])) + 10;
+        minY = Math.min(...pts.map(p => p[1])) - 10;
+        maxY = Math.max(...pts.map(p => p[1])) + 10;
+    }
+
+    function toCanvas(x, y) {
+        const padding = 40;
+        const cw = canvas.width - padding * 2;
+        const ch = canvas.height - padding * 2;
+        const scaleX = cw / (maxX - minX || 1);
+        const scaleY = ch / (maxY - minY || 1);
+        const scale = Math.min(scaleX, scaleY);
+        const cx = padding + (x - minX) * scale;
+        const cy = canvas.height - padding - (y - minY) * scale;
+        return [cx, cy];
+    }
+
+    function drawMap() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (!graph) return;
+
+        // Edges (전체 도로망 - 회색 실선)
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.3)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([]);
+        if (graph.edges && graph.nodes) {
+            for (const [src, dstList] of Object.entries(graph.edges)) {
+                const p1 = graph.nodes[src];
+                if (!p1) continue;
+                for (const dst of dstList) {
+                    const p2 = graph.nodes[dst];
+                    if (!p2) continue;
+                    const [cx1, cy1] = toCanvas(p1[0], p1[1]);
+                    const [cx2, cy2] = toCanvas(p2[0], p2[1]);
+                    ctx.beginPath(); ctx.moveTo(cx1, cy1); ctx.lineTo(cx2, cy2); ctx.stroke();
+                }
+            }
+        }
+
+        // Nodes
+        ctx.fillStyle = '#64748b';
+        if (graph.nodes) {
+            for (const [nid, p] of Object.entries(graph.nodes)) {
+                const [cx, cy] = toCanvas(p[0], p[1]);
+                ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI*2); ctx.fill();
+            }
+        }
+
+        // Houses
+        if (graph.houses) {
+            for (const [hid, h] of Object.entries(graph.houses)) {
+                const [cx, cy] = toCanvas(h.pos[0], h.pos[1]);
+                ctx.fillStyle = '#f59e0b';
+                ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = '#cbd5e1'; ctx.font = '10px Inter'; ctx.fillText(hid, cx + 10, cy + 3);
+            }
+        }
+
+        // Plan Path (계획 궤적 - 파란색 점선)
+        if (plan && plan.waypoints) {
+            ctx.strokeStyle = 'rgba(59, 130, 246, 0.6)';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            for (let i = 0; i < plan.waypoints.length; i++) {
+                const p = plan.waypoints[i];
+                const [cx, cy] = toCanvas(p[0], p[1]);
+                if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+            }
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Robot
+        if (robotPos) {
+            const [cx, cy] = toCanvas(robotPos.x, robotPos.y);
+            ctx.shadowBlur = 15; ctx.shadowColor = 'rgba(239, 68, 68, 0.8)';
+            ctx.fillStyle = '#ef4444';
+            ctx.beginPath(); ctx.arc(cx, cy, 8, 0, Math.PI*2); ctx.fill();
+            ctx.shadowBlur = 0;
+            const dirX = cx + Math.cos(robotPos.yaw) * 15;
+            const dirY = cy - Math.sin(robotPos.yaw) * 15; 
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(dirX, dirY); ctx.stroke();
+        }
+    }
+
+    function addLog(msg, type = '') {
+        const div = document.createElement('div');
+        div.className = `log-item ${type}`;
+        div.innerHTML = `<strong>[${new Date().toLocaleTimeString()}]</strong> ${msg}`;
+        logViewer.prepend(div);
+    }
+
+    function showPhoto(url, labelText, isAlert = false) {
+        photoEmpty.style.display = 'none';
+        // ?t= timestamp 로 캐시 방지 (검은 화면 버그 해결)
+        latestImg.src = url + "?t=" + new Date().getTime();
+        latestImg.style.display = 'block';
+        photoLabel.textContent = labelText;
+        photoLabel.style.display = 'block';
+        photoLabel.className = `photo-label ${isAlert ? 'alert' : ''}`;
+    }
+
+    function connectWS() {
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws/dashboard`);
+
+        ws.onopen = () => {
+            connStatus.textContent = 'Live'; connStatus.classList.add('active');
+            addLog('Connected to Backend WS', 'success');
+        };
+
+        ws.onclose = () => {
+            connStatus.textContent = 'Disconnected'; connStatus.classList.remove('active');
+            videoRec.style.display = 'none';
+            setTimeout(connectWS, 3000);
+        };
+
+        ws.onmessage = (e) => {
+            const data = JSON.parse(e.data);
+            
+            if (data.type === 'graph') {
+                graph = data; updateBounds(); resizeCanvas();
+                addLog('Received Map Graph');
+            }
+            else if (data.type === 'pos') {
+                robotPos = data; requestAnimationFrame(drawMap);
+            }
+            else if (data.type === 'plan') {
+                plan = data; drawMap();
+                addLog(`New Mission: ${data.house_order.join(' → ')}`, 'success');
+            }
+            else if (data.type === 'status') {
+                let typeClass = '';
+                if (data.phase === 'arrived' || data.phase === 'mission_done') typeClass = 'success';
+                let text = `Phase: ${data.phase}`;
+                if (data.house_id) text += ` @ ${data.house_id}`;
+                addLog(text, typeClass);
+            }
+            else if (data.type === 'photo_captured') {
+                addLog(`Photo captured at ${data.robot_id}`, 'photo');
+                showPhoto(data.url, `Vacant House Photo`, false);
+            }
+            else if (data.type === 'missing_person_detected') {
+                addLog(`🚨 Missing Person Detected: ${data.missing_person_id}`, 'missing');
+                showPhoto(data.url, `🚨 Missing: ${data.missing_person_id}`, true);
+            }
+            else if (data.type === 'video_frame') {
+                videoEmpty.style.display = 'none';
+                liveVideo.style.display = 'block';
+                videoRec.style.display = 'block';
+                liveVideo.src = data.data; // Base64 data
+            }
+        };
+    }
+
+    resizeCanvas();
+    connectWS();
+</script>
+
+</body>
+</html>
