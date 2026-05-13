@@ -89,3 +89,6 @@ ros2_docker/colcon_ws/src/patrol_planner/dummy_backend/uploads/
 Nav2SLAMExampleProject/Library/
 Nav2SLAMExampleProject/Temp/
 Nav2SLAMExampleProject/Logs/
+
+# 테스트용 실종자 이미지
+IMG_8725.jpeg

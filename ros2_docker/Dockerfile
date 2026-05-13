@@ -65,6 +65,10 @@ RUN apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E
 RUN echo ". /opt/ros/${ROS_DISTRO}/setup.bash" >> /home/${DEV_NAME}/.bashrc && \
     echo ". /home/${DEV_NAME}/${WS_NAME}/install/local_setup.bash" >> /home/${DEV_NAME}/.bashrc
 
+# 영천 빈집 순찰 시스템용 필수 파이썬 패키지 설치
+RUN pip3 install --upgrade pip && \
+    pip3 install requests numpy zipp ultralytics Pillow websocket-client fastapi uvicorn python-multipart
+
 ENV TURTLEBOT3_MODEL=waffle_pi
 
 # To bring up tb3 simulation example (from https://navigation.ros.org/tutorials/docs/navigation2_with_slam.html)
