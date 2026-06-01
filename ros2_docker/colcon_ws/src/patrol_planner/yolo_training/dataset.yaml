@@ -1,0 +1,10 @@
+# YOLOv8 학습용 데이터셋 설정
+# 사용법: yolo detect train data=dataset.yaml model=yolov8n.pt epochs=50
+
+path: ./dataset    # 데이터셋 루트
+train: images/train
+val: images/val
+
+# 클래스 정의 (missingPersonId 기준)
+names:
+  0: P-1   # 이민호 

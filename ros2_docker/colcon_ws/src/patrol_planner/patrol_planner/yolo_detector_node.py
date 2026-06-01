@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 
 from sensor_msgs.msg import Image
 import tf2_ros
@@ -59,6 +60,13 @@ def ros_image_to_jpeg(img_msg, quality=85):
     else:
         raise ValueError(f"지원하지 않는 이미지 인코딩: {enc}")
 
+    # Unity RenderTexture 가 OpenGL Y축 뒤집힌 상태로 들어오기 때문에 vertical flip.
+    # 그리고 영찬님 요청: 실종자 후보 이미지는 시계방향 90° 회전해서 정방향으로 보내기.
+    # PIL.Image.transpose(ROTATE_270) 가 시계방향 90° 회전.
+    from PIL import ImageOps
+    img = ImageOps.flip(img)
+    img = img.transpose(PILImage.ROTATE_270)
+
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=quality)
     return buf.getvalue()
@@ -97,15 +105,20 @@ class YoloDetectorNode(Node):
             self.get_logger().error(f"YOLO 모델 로드 실패: {e}")
             self.model = None
 
-        self._reported_persons = set()  # 한 번 탐지된 ID는 다시 전송하지 않음
+        # 중복 방지 로직 제거. 매 추론마다 발견된 ID 는 전부 backend 로 보냄.
+        # (이전엔 _reported_persons 셋에 담아 같은 ID 두 번째부터 무시했지만
+        #  영찬님 요청으로 매번 알림 보내도록 변경)
 
         # TF 리스너
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
         # 이미지 구독 (Throttling 적용: 1초에 약 2번만 추론하도록)
+        # QoS: 센서 데이터용 (BEST_EFFORT). Unity ROS-TCP-Endpoint publisher 와 매칭됨.
+        # 기본값(RELIABLE) 로 두면 publisher 와 어긋나 메시지가 전달되지 않거나
+        # 변환 실패(make_tuple RuntimeError) 가 발생함.
         self.image_sub = self.create_subscription(
-            Image, self.camera_topic, self._on_image, 1
+            Image, self.camera_topic, self._on_image, qos_profile_sensor_data
         )
         self._last_inference_time = self.get_clock().now()
         self._inference_interval = 0.5  # 500ms 간격으로 추론
@@ -160,34 +173,50 @@ class YoloDetectorNode(Node):
             elif enc == "mono8":
                 img = PILImage.frombytes("L", (w, h), data).convert("RGB")
             else:
+                self.get_logger().warn(f"[ENC] 지원 안하는 인코딩: {enc} (w={w}, h={h})")
                 return # 지원하지 않는 포맷
 
             # 2) YOLO 추론 실행
             results = self.model(img, verbose=False)
-            
+
+            # 디버그: 모든 박스의 최고 confidence 한 줄 로그 (탐지 0건이어도)
+            top_conf = 0.0
+            box_count = 0
+            for r in results:
+                for box in r.boxes:
+                    box_count += 1
+                    c = float(box.conf[0])
+                    if c > top_conf:
+                        top_conf = c
+            self.get_logger().info(
+                f"[DBG] enc={enc} {w}x{h} | boxes={box_count} top_conf={top_conf:.3f} (threshold={self.confidence_threshold})"
+            )
+
             detected_ids = set()
+            accepted_boxes = []
             for r in results:
                 boxes = r.boxes
                 for box in boxes:
                     conf = float(box.conf[0])
+                    cls_idx = int(box.cls[0])
+                    class_name = self.model.names[cls_idx]
                     if conf >= self.confidence_threshold:
-                        cls_idx = int(box.cls[0])
-                        # model.names 에 클래스 라벨(이름)이 맵핑되어 있음
-                        class_name = self.model.names[cls_idx]
                         detected_ids.add(class_name)
+                        accepted_boxes.append(f"{class_name}:{conf:.3f}")
 
-            # 3) 새로 탐지된 대상 전송
+            if accepted_boxes:
+                self.get_logger().info(f"[DBG] threshold 통과 클래스: {', '.join(accepted_boxes)}")
+            elif box_count > 0:
+                self.get_logger().warn("[DBG] box 는 있지만 threshold 를 통과한 클래스가 없습니다.")
+
+            # 3) 발견된 대상 전부 전송 (중복 방지 없음 — 매번 보냄)
             for person_id in detected_ids:
-                if person_id not in self._reported_persons:
-                    self._handle_detection(person_id, msg)
+                self._handle_detection(person_id, msg)
 
         except Exception as e:
             self.get_logger().error(f"YOLO 추론 에러: {e}")
 
     def _handle_detection(self, person_id, img_msg):
-        # 이번 런타임 내에서만 전송 방지 (메모리 셋에 추가)
-        self._reported_persons.add(person_id)
-        
         x, y = self._get_current_pose()
         if x is None or y is None:
             self.get_logger().warn(f"[{person_id}] 탐지되었으나 TF 조회가 안되어 좌표를 알 수 없음.")
@@ -230,11 +259,14 @@ class YoloDetectorNode(Node):
 
         try:
             r = requests.post(url, files=files, data=data, timeout=5.0)
-            self.get_logger().info(f"[POST] 실종자 {person_id} 전송 완료: {r.status_code}")
+            if 200 <= r.status_code < 300:
+                self.get_logger().info(f"[POST] 실종자 {person_id} 전송 완료: {r.status_code}")
+            else:
+                self.get_logger().error(
+                    f"[POST] 실종자 {person_id} 전송 실패: {r.status_code} {r.text[:300]}"
+                )
         except Exception as e:
             self.get_logger().error(f"[POST] 실종자 {person_id} 전송 실패: {e}")
-            # 실패 시 재전송을 위해 reported_persons 에서 제거할 수도 있음
-            # self._reported_persons.discard(person_id)
 
 
 def main(args=None):
