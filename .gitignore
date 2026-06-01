@@ -90,9 +90,22 @@ Nav2SLAMExampleProject/Library/
 Nav2SLAMExampleProject/Temp/
 Nav2SLAMExampleProject/Logs/
 
-# 테스트용 실종자 이미지
-IMG_8725.jpeg
 
 # 빈집 이미지
 house_without_loof.zip
 house_with_loof.zip
+
+env_updated.txt
+# 운영 메타데이터
+*.pid
+__MACOSX/
+.DS_Store
+Nav2SLAMExampleProject/Packages/*.save
+
+# 팀원 레포 — 메인 레포에 포함하지 않음 (각자 본인 레포로 PR)
+# /backend/  ← 메인 레포에 포함시키기로 함 (PR 워크플로 X)
+/yeongcheon-frontend-main/
+/yeongcheon-vacant-house-agent/
+
+# colcon_ws runtime temp
+ros2_docker/colcon_ws/tmp/
