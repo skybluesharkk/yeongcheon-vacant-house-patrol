@@ -2,21 +2,25 @@
 """
 patrol_node: 영천 빈집 순찰 메인 ROS2 노드
 
-흐름:
-    1) /house_request 토픽으로 들어온 빈집 ID 리스트(쉼표 구분) 또는
-       시작 시 자동으로 더미 빈집 리스트를 받는다.
-    2) tf로 차량의 현재 위치(odom -> base_footprint)를 얻는다.
-    3) planner.compute_full_path 로 TSP+A* 전체 경로 계산
+기본 동작:
+    실행 직후에는 출발점(spawn)에서 그대로 대기한다 (auto_start=False).
+    사용자가 프론트 대시보드 UI 에서 순찰할 빈집을 선택해 명령을 보내야 움직인다.
+
+미션 시작 트리거 (세 가지 경로 모두 동일하게 _start_mission 으로 수렴):
+    (a) 프론트 → 백엔드 WS /ws/dashboard → 백엔드가 /ws/robot 으로 중계 →
+        patrol_node 의 on_message 가 받아 /house_request 토픽 publish
+    (b) 외부에서 직접 `ros2 topic pub /house_request std_msgs/String "data: 'H1,H3'"`
+    (c) 개발용: 실행 시 -p auto_start:=true 로 켜면 DEFAULT_HOUSE_IDS 자동 시작
+
+미션 흐름:
+    1) tf로 차량의 현재 위치(odom -> base_footprint)를 얻는다.
+    2) planner.compute_full_path 로 TSP+A* 전체 경로 계산
        (각 빈집마다 도착 인덱스 + 목표 yaw 도 함께 받아둠).
-    4) PathFollower 가 한 점씩 따라가며 /cmd_vel 발행.
-    5) 빈집 도착 지점에 들어오면 상태머신이 다음 단계를 수행:
+    3) PathFollower 가 한 점씩 따라가며 /cmd_vel 발행.
+    4) 빈집 도착 지점에 들어오면 상태머신이 다음 단계를 수행:
         FOLLOWING → ROTATING(목표 yaw로 회전) → CAPTURING(/house_arrival 발행 +
         카메라 이미지 캡처 + 백엔드 POST + pause_at_house 만큼 정지) → FOLLOWING
-    6) 모든 빈집 방문 후 시작 지점으로 복귀하고 종료.
-
-부분 탐지:
-    /house_request 토픽에 ID 부분집합을 보내거나, DEFAULT_HOUSE_IDS 를 수정.
-    HOUSES 카탈로그 자체를 건드릴 필요 없음.
+    5) 모든 빈집 방문 후 시작 지점으로 복귀하고 종료. 다시 spawn 점에서 대기.
 """
 
 import io
@@ -36,6 +40,7 @@ from datetime import datetime, timezone
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
@@ -124,7 +129,13 @@ class PatrolNode(Node):
         self.declare_parameter("odom_frame", "odom")
         self.declare_parameter("base_frame", "base_footprint")
         self.declare_parameter("control_rate", 20.0)
-        self.declare_parameter("auto_start", True)
+        self.declare_parameter("cmd_vel_topic", "/cmd_vel")
+        # auto_start 기본값: False
+        # 시작 시 자동으로 더미 미션 안 돌고, 출발점(spawn)에서 대기.
+        # 사용자가 프론트 UI 에서 빈집 선택 → start_mission WS → 백엔드가 로봇으로 중계 →
+        # patrol_node 가 /house_request 로 받아서 그제서야 경로 계산하고 출발.
+        # 개발 중 빠른 테스트가 필요하면 실행 시 -p auto_start:=true 로 켤 수 있음.
+        self.declare_parameter("auto_start", False)
 
         # 빈집 도착 시 yaw 정렬 허용 오차 (rad). 일반 주행 yaw_tolerance 보다 빡빡.
         self.declare_parameter("house_yaw_tolerance", 0.1)
@@ -150,6 +161,7 @@ class PatrolNode(Node):
         self.odom_frame = self.get_parameter("odom_frame").value
         self.base_frame = self.get_parameter("base_frame").value
         self.control_rate = self.get_parameter("control_rate").value
+        self.cmd_vel_topic = self.get_parameter("cmd_vel_topic").value
         self.auto_start = self.get_parameter("auto_start").value
         self.house_yaw_tolerance = self.get_parameter("house_yaw_tolerance").value
         self.camera_topic = self.get_parameter("camera_topic").value
@@ -158,14 +170,16 @@ class PatrolNode(Node):
         self.post_timeout = float(self.get_parameter("post_timeout").value)
 
         # ---------------- ROS 인터페이스 ----------------
-        self.cmd_pub = self.create_publisher(Twist, "/cmd_vel", 10)
+        self.cmd_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
         self.arrival_pub = self.create_publisher(String, "/house_arrival", 10)
         self.request_pub = self.create_publisher(String, "/house_request", 10)
         self.request_sub = self.create_subscription(
             String, "/house_request", self._on_house_request, 10
         )
+        # 카메라 이미지: Unity ROS-TCP-Endpoint 가 BEST_EFFORT 로 발행하므로
+        # 동일한 QoS 프로파일(qos_profile_sensor_data)로 구독해야 메시지가 전달됨.
         self.image_sub = self.create_subscription(
-            Image, self.camera_topic, self._on_image, 1
+            Image, self.camera_topic, self._on_image, qos_profile_sensor_data
         )
 
         # tf2 listener
@@ -204,6 +218,7 @@ class PatrolNode(Node):
         self._ws_connected = False
         self._pos_send_counter = 0
         self._current_mission_id = None
+        self._last_cmd_log_time = 0.0
         
         self._init_backend_connection()
 
@@ -223,7 +238,8 @@ class PatrolNode(Node):
             f"linear={self.linear_speed}, angular={self.angular_speed}, "
             f"yaw_tol={self.yaw_tolerance}, arr_tol={self.arrival_tolerance}, "
             f"pause={self.pause_at_house}s, house_yaw_tol={self.house_yaw_tolerance} | "
-            f"camera={self.camera_topic} | robot_id={self.robot_id} | "
+            f"camera={self.camera_topic} | cmd_vel={self.cmd_vel_topic} | "
+            f"auto_start={self.auto_start} | robot_id={self.robot_id} | "
             f"backend={'(미설정)' if not self.backend_url else self.backend_url}"
         )
 
@@ -663,7 +679,7 @@ class PatrolNode(Node):
         별도 스레드에서 실행. 제어 루프를 블록하지 않음.
 
         엔드포인트: POST {backend_url}/api/robots/{robot_id}/image
-        Form data: image (file), x, y, timestamp (ISO 8601)
+        Form data: image (file), houseId, house_id, x, y, timestamp (ISO 8601)
         - address 필드는 Unity 시뮬레이션이라 실제 한국어 주소가 없어 생략.
           백엔드가 필수로 요구하면 house_id 또는 좌표 문자열을 채워 보낼 것.
         """
@@ -683,6 +699,8 @@ class PatrolNode(Node):
         iso_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
         files = {"image": (f"{house_id}.jpg", jpeg, "image/jpeg")}
         data = {
+            "houseId": house_id,
+            "house_id": house_id,
             "x": f"{x:.2f}",
             "y": f"{y:.2f}",
             "timestamp": iso_ts,
@@ -718,6 +736,14 @@ class PatrolNode(Node):
         msg.linear.x = float(linear)
         msg.angular.z = float(angular)
         self.cmd_pub.publish(msg)
+        now = time.time()
+        if self._mission_active and now - self._last_cmd_log_time >= 1.0:
+            self._last_cmd_log_time = now
+            self.get_logger().info(
+                f"[CMD] {self.cmd_vel_topic} linear={msg.linear.x:.2f}, "
+                f"angular={msg.angular.z:.2f}, state={self._state}, "
+                f"wp={self.follower.current_index()}"
+            )
 
     def _publish_stop(self):
         self._publish_cmd(0.0, 0.0)
